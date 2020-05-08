@@ -1,0 +1,182 @@
+Step1:
+I chose to solve the Seversal : Steel Defect Detection problem available on Kaggle.
+https://www.kaggle.com/c/severstal-steel-defect-detection/overview
+Here, we can do the following three things :
+1.Predict if the steel sheet has a defect or not 
+2.Predict the class of the defect (class 1, class 2 , class 3, class 4)
+3.Predict the location of the defect on the steel sheet.
+
+Each steel sheet/image can have multiple defects. Hence, we can say that the classification problem is a multiclass multilabel classification problem. 
+ Location of defects in the steel sheet:
+Locations of the defects are marked in the column encodedpixels in the training excel sheet. They are of the following format
+171 3 190 4 meaning
+defects are present at the location 170 and the next 3 locations(including that location) Similarly for 190.
+defect locations : 171 172 173 190 191 192 193
+
+
+Step2:
+Types of defect classes : 4
+There are 12,568 train images  and 1801 test images. We split the training images into training and validation sets. 
+Train:Validation split = 85:15 percent
+Training Images = Approx 10,682
+Validation images = Approx 1885 
+
+
+
+
+Please note : We are using data augmentation for all the cases below.[Parameters : Hflip 25% Vflip 25%]
+ 
+
+Step3:
+Data cleanup was not required in this problem. However, preprocessing  was required before we used the data. 
+The train csv contains two columns- image and its Encoded pixels 
+Image column is a concatenation of image alongwith a defect class(Concatenation doesnt mean that defect is present in that image. Single image is concatenated with all the 4 classes. If an image_defect class has encoded pixel info in it, that means the image has the defect class with the location of given encodedpixels ).
+Here from the information, we create following additional columns for training dataframe-
+Image -Just the image name
+Type of defect - Defect (1/2/3/4)
+HasMask- Boolean column . If encoded pixels exist, we mark this as true else false.
+
+Also from this we create a new dataframe maskcountdf where we aggregate the masking information per image.
+If hasMask > 0 , that means that image has atleast 1 defect.Else no defect.
+
+Utilities :
+Here, we are provided with the encodedpixels in run length encoded format. These pixels indicate that there exists a defect in that pixel. 
+ We convert the run length encoded values to actual locations of pixels(eg 12 3 = 12 13 14). We will create an image/array that has defective locations colored white(255) whereas non defective locations colored black(0). Thus we transformed the rle encoded pixels to actual image. We call this image as image mask.
+Here, we use rle2mask, mask2rle, build_masks, build_rles functions to create masked images and rles out of masks.
+
+dice_coef,dice_loss
+The Sørensen–Dice coefficient is a statistic used to gauge the similarity of two samples(Credit : Wikipedia)
+Here, we can use to check the similarly of predicted vs actual images . This can be used to guage if our model has done a good job predicting the locations of the defects.
+If dice_coef is 1, it means that the two images are exactly equal.
+If dice_coef is 0, it means that the two images have nothing in common.
+
+dice loss can be considered as 1- dice_coef
+
+Customised Data Generator: Since we are given rle and we need to generate a target vector from an rle, we cannot use Keras Image Generator. We need to customise as per our needs. Hence we have a customised data Generator.
+
+Please note: Due to time shortage, I went ahead with the Classifications. I could not perform prediction of location of the defective images.
+
+Step4:
+Shallow machine learning algorithms:
+I tried with skilearn , however I faced a lot of issues esp with memory exceptions. I tried Multi layer perceptrons and logistic regression. But it resulted in Out of Memory exceptions while running on google colab. So I gave up the idea of using this and went ahead with CNN network for a baseline.
+
+
+
+
+Step5:
+Baseline :
+5 way classification ie either a defect /not a defect or defect/s and its type/s
+5 layers Conv Net with Batch normalisation and max pooling (Baseline_steel_defect_detect_defect_non_defect_simple_cnn.ipynb)
+
+667/667 [==============================] - 230s 344ms/step - loss: 0.3501 - binary_accuracy: 0.8394 - auc_1: 0.8416 - val_loss: 0.3481 - val_binary_accuracy: 0.8276 - val_auc_1: 0.8478
+
+-> val_binary_accuracy: 0.8276 - val_auc_1: 0.8478
+val_binary_accuracy Also considers classes for which both truth and prediction are false ie If there is no defect and the classifier classifies as Type 1 defect, this will result in 75% accuracy. Hence we would like to give more stress to AUC/F1 Score.
+
+From here I tried 2 pronged approach 
+1. 
+1.1 A network that identifies whether there is a defect or not.
+1.2 If there is a defect another network identifies the type of defect.
+
+2. Classifies defect vs non defect and type of defect together in 1 entire network.
+
+1.1 Defect vs Non defect
+
+
+1. Combination of dropout and regularisation(steel_defect_detect_defect_non_defect_cnn_reg_drp.ipynb)
+
+5 layers of Conv2d, Batch norm and max pooling. L2 regularisation applied to Kernel , dropout 0.3
+We use softmax as the activation function and  categorical_crossentropy as the loss function.
+We use softmax for getting probablity distribution.
+
+Epoch 63/70
+667/667 [==============================] - 199s 299ms/step - loss: 0.2531 - categorical_accuracy: 0.9120 - val_loss: 0.2754 - val_categorical_accuracy: 0.9001
+Highest validation accuracy : 90.01%
+
+2. Only regularisation(steel_defect_detect_defect_non_defect_cnn_reg.ipynb)
+
+5 layers of Conv2d, Batch norm and max pooling. L2 regularisation applied to Kernel 
+We use softmax as the activation function and  categorical_crossentropy as the loss function.
+We use softmax for getting probablity distribution.
+
+Epoch 66/70
+667/667 [==============================] - 196s 295ms/step - loss: 0.1953 - categorical_accuracy: 0.9407 - val_loss: 0.3166 - val_categorical_accuracy: 0.9001
+Highest validation accuracy : 90.01%
+
+3.No regularisation and no dropout. Simple CNN(Copy of steel_defect_detect_defect_non_defect_simple_cnn.ipynb)
+
+5 layers of Conv2d, Batch norm and max pooling 
+We use softmax as the activation function and  categorical_crossentropy as the loss function.
+We use softmax for getting probablity distribution.
+
+Epoch 58/70
+667/667 [==============================] - 173s 260ms/step - loss: 0.3076 - categorical_accuracy: 0.8622 - val_loss: 0.3738 - val_categorical_accuracy: 0.8344
+Highest validation accuracy : 83.44%
+
+We used Batch normalisation for all our following trials. Batch normalisation  helps improve stability of the network as well as improves performance.
+
+* Categorical accuracy is the right metrics here as it measures which only one label out of available labels is the target and since these targets are mutually exclusive, this is the right metric to measure.
+* Higher order nets such as VGGNet and ResNet50V2 actually degraded the performance.
+
+1.2 If the above network classifies an image as defective, this network classifies the type of defect/s.
+
+We tried with pretrained networks such as ResNet50V2,VGGNet. 
+We found out Resnet network gives the best AUC.
+
+ResNet50V2:
+We gently fine tune the entire model and check the accuracies.
+311/312 [============================>.] - ETA: 0s - loss: 0.0994 - precision: 0.9725 - recall: 0.9188 - auc: 0.9941
+312/312 [==============================] - 82s 262ms/step - loss: 0.0997 - precision: 0.9724 - recall: 0.9187 - auc: 0.9941 - val_loss: 0.1397 - val_precision: 0.9331 - val_recall: 0.8981 - val_auc: 0.9822
+
+Test data:
+50/50 [==============================] - 11s 229ms/step - loss: 0.1293 - precision: 0.9386 - recall: 0.8853 - auc: 0.9862
+ 
+ VGGNet didnt perform well.
+ 
+ 2. 
+ 
+ We tried Efficientnet and ResNet50V2.
+ a. ResNet50V2
+ We gently fine tune the entire model and check the accuracies.
+
+666/667 [============================>.] - ETA: 0s - loss: 3.8475e-04 - binary_accuracy: 0.9999Epoch 1/40
+117/667 [====>.........................] - ETA: 1:49 - loss: 0.1932 - binary_accuracy: 0.9658WARNING:tensorflow:Can save best model only with val_auc available, skipping.
+667/667 [==============================] - 153s 229ms/step - loss: 3.8420e-04 - binary_accuracy: 0.9999 - val_loss: 0.1932 - val_binary_accuracy: 0.9658
+-> val_binary_accuracy: 0.9658
+ 
+Epoch 28/40
+666/667 [============================>.] - ETA: 0s - loss: 0.0269 - auc_1: 0.9995WARNING:tensorflow:Can save best model only with val_auc available, skipping.
+667/667 [==============================] - 174s 261ms/step - loss: 0.0269 - auc_1: 0.9995 - val_loss: 0.1122 - val_auc_1: 0.9769
+-> val_auc_1: 0.9769
+
+Here too, Resnet performed very well. 
+
+
+b.  Efficientnet B1.
+Here, we tried to fine tune the entire model. However, it did not work out as it kept on giving an out of memory excpetion.
+So we tried with the feature extraction approach. We took features of efficientnet and trained our layers.
+
+Epoch 30/30
+667/667 [==============================] - 433s 649ms/step - loss: 0.0399 - binary_accuracy: 0.9963 - val_loss: 1.2527 - val_binary_accuracy: 0.8237
+-> val_binary_accuracy: 0.8237
+ 
+AUC from the Efficientnet model could not be calculated because Efficientnet is on vanilla keras and auc is available on tensorflow.
+As seen accuracy drops than baseline. No point using Efficientnet.
+
+
+Also Used check pointing and callbacks in models. Also, for some cases, we use f1score and auc as our metrics. This is done to understand the accuracy of the defective classes only rather than including the accuracy of non defective classes.
+
+Step6:
+
+
+We werent able to try shallow machine learning as said earlier. Our baseline was a single convnet and our best net was deep residual network. By closely looking at defect type 3 and 4 , it is clear that these defects have significant type of edges and may require more layers than simple conv nets to learn those features. If we just add more layers to the baseline network, it is a well known fact that this would result in vanishing gradient issue. To overcome this issue, Residual net has been used. Hence, it is able to learn complicated features.Also the pretrained resnet network alongwith single dense layer was able to learn much faster than any other net. It gave best auc, precision, and recall. 
+
+Since the project was a multi label classification problem too, I got to learn how to classify multi label entities. ALso, this project involved predicting the locations of where the defects could be, I read and understood concepts involving computer vision such as dice coefficent, dice loss, had to implement a customised DataGenerator. Also, I could implement pretrained models such as Resnet.I liked working on this project because not only I could implement the concepts taught in the class, but also I could explore other important computer vision concepts and got to understand what happens, how it happens and why should we implement a particular concept.
+
+
+Please Note : 
+Credits to Arooshi Verma. I used her code heavily for concepts such as customised Data Generator, dice coefficient calculation , masking -rle conversion.
+Though I have used her code, I have customised the Data Generator more to fit our needs. 
+All the models are developed by me and no external code has been used for that.
+
+Please note: All my comments related to the notebook are also present in readme. hence I have not put them in the notebook.
